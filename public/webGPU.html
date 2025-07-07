@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebGPU Text Rendering</title>
+</head>
+<body>
+    <canvas id="webgpuCanvas" width="640" height="480" style="border:1px solid black;"></canvas>
+    <script type="module">
+        // Check for WebGPU support
+        if (!navigator.gpu) {
+            console.error("WebGPU is not supported by this browser.");
+            throw new Error("WebGPU is not supported.");
+        }
+
+        // Initialize WebGPU
+        async function initWebGPU() {
+            const canvas = document.getElementById('webgpuCanvas');
+            const adapter = await navigator.gpu.requestAdapter();
+            const device = await adapter.requestDevice();
+            const context = canvas.getContext('webgpu');
+            const format = 'bgra8unorm';
+
+            context.configure({
+                device: device,
+                format: format,
+                alphaMode: 'opaque'
+            });
+
+            // Create text canvas
+            const textCanvas = document.createElement('canvas');
+            textCanvas.width = 256;
+            textCanvas.height = 256;
+            const ctx = textCanvas.getContext('2d');
+            ctx.fillStyle = 'white';
+            ctx.fillRect(0, 0, 256, 256);
+            ctx.font = '24px Arial';
+            ctx.fillStyle = 'black';
+            ctx.fillText('Hello, WebGPU!', 20, 50);
+
+            // Create texture
+            const texture = device.createTexture({
+                size: [textCanvas.width, textCanvas.height, 1],
+                format: 'rgba8unorm',
+                usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT
+            });
+            device.queue.copyExternalImageToTexture(
+                { source: textCanvas },
+                { texture: texture },
+                [textCanvas.width, textCanvas.height]
+            );
+
+            // Shaders
+            const shaderModule = device.createShaderModule({
+                code: `
+                    @vertex
+                    fn vs_main(@builtin(vertex_index) VertexIndex : u32) -> @builtin(position) vec4<f32> {
+                        var pos = array<vec2<f32>, 6>(
+                            vec2<f32>(-1.0, -1.0),
+                            vec2<f32>(1.0, -1.0),
+                            vec2<f32>(-1.0, 1.0),
+                            vec2<f32>(-1.0, 1.0),
+                            vec2<f32>(1.0, -1.0),
+                            vec2<f32>(1.0, 1.0));
+                        return vec4<f32>(pos[VertexIndex], 0.0, 1.0);
+                    }
+
+                    @fragment
+                    fn fs_main(@builtin(position) FragCoord : vec4<f32>) -> @location(0) vec4<f32> {
+                        var uv = FragCoord.xy * 0.5 + 0.5;
+                        return textureSample(texture, sampler, uv);
+                    }
+                `
+            });
+
+            // Pipeline setup
+            const pipeline = device.createRenderPipeline({
+                vertex: {
+                    module: shaderModule,
+                    entryPoint: 'vs_main'
+                },
+                fragment: {
+                    module: shaderModule,
+                    entryPoint: 'fs_main',
+                    targets: [{
+                        format: format
+                    }]
+                },
+                primitive: {
+                    topology: 'triangle-list'
+                }
+            });
+
+            // Bind group setup
+            const sampler = device.createSampler({
+                magFilter: 'linear',
+                minFilter: 'linear'
+            });
+            const textureView = texture.createView();
+            const bindGroup = device.createBindGroup({
+                layout: pipeline.getBindGroupLayout(0),
+                entries: [{
+                    binding: 0,
+                    resource: textureView,
+                }, {
+                    binding: 1,
+                    resource: sampler,
+                }]
+            });
+
+            // Drawing
+            const commandEncoder = device.createCommandEncoder();
+            const textureView = context.getCurrentTexture().createView();
+            const renderPassDescriptor = {
+                colorAttachments: [{
+                    view: textureView,
+                    loadOp: 'clear',
+                    clearValue: { r: 0, g: 0, b: 0, a: 1 },
+                    storeOp: 'store'
+                }]
+            };
+            const passEncoder = commandEncoder.beginRenderPass(renderPassDescriptor);
+            passEncoder.setPipeline(pipeline);
+            passEncoder.setBindGroup(0, bindGroup);
+            passEncoder.draw(6, 1, 0, 0);
+            passEncoder.endPass();
+
+            device.queue.submit([commandEncoder.finish()]);
+        }
+
+        // Call the initialization function
+        initWebGPU();
+    </script>
+</body>
+</html>
