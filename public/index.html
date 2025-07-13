@@ -8,12 +8,29 @@
       margin: 0;
       height: 100%;
       overflow: hidden;
-      font-family: s ans-serif;
+      font-family: sans-serif;
     }
 
+nav {
+  display: flex;
+  justify-content: flex-start; /* align buttons to the left */
+  background: #222;
+  color: white;
+  padding: 10px 20px;
+  font-size: 16px;
+}
+
+nav button {
+  background: transparent;
+  color: white;
+  border: none;
+  cursor: pointer;
+  font-size: 16px;
+  margin-right: 10px; /* space between buttons */
+}
     #mindmapWrapper {
       width: 100vw;
-      height: 100vh;
+      height: calc(100vh - 40px);
       overflow: scroll;
       position: relative;
     }
@@ -88,7 +105,7 @@
       border: none;
     }
 
-    #modal {
+    #modal, #helpModal {
       position: fixed;
       top: 25%;
       left: 30%;
@@ -103,7 +120,25 @@
 </head>
 <body>
 
-  
+<nav>
+  <button onclick="toggleModal()">  <h2>🎹MougeHTML</h2></button>
+  <button onclick="toggleModal()">   🎛️ Menu</button>
+  <button onclick="document.getElementById('helpModal').style.display = 'block'">🙋✨ Help</button>
+</nav>
+
+
+
+
+<div id="helpModal">
+  <h3>✨ Keyboard Shortcuts</h3>
+  <ul>
+    <li>🖥️<code>` + W</code> — Toggle Render Mode</li>
+    <li>🔢 <code>` + R</code> — Toggle Render Sequence</li>
+    <li>⚙️ <code>` + E</code> — Open Menu Modal</li>
+    <li>📝 <code>` + Shift </code> — Toggle Edit Mode</li>
+  </ul>
+  <button onclick="document.getElementById('helpModal').style.display = 'none'">Close</button>
+</div>
 
 <div id="mindmapWrapper"><div id="mindmap"></div></div>
 <div id="iframeView"><iframe id="outputFrame"></iframe></div>
