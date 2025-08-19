@@ -105,6 +105,24 @@ nav button {
       border: none;
     }
 
+
+
+    .node .rich {
+  width: 100%;
+  height: calc(100% - 12px);
+  box-sizing: border-box;
+  padding: 5px;
+  outline: none;
+  overflow: auto;
+  white-space: pre-wrap;
+  font: 14px/1.4 monospace;
+  background: transparent;
+  border: none;
+}
+
+
+.kw { color: red; font-weight: 600; }
+
     #modal, #helpModal {
       position: fixed;
       top: 25%;
@@ -116,6 +134,87 @@ nav button {
       display: none;
       z-index: 1000;
     }
+
+
+    
+    /* === Inline syntax colors === */
+.tok.comment { color:#6a737d; font-style: italic; }
+.tok.string  { color:#032f62; }
+.tok.number  { color:#005cc5; }
+.tok.keyword { color:#d73a49; font-weight:600; }
+.tok.regex   { color:#22863a; }
+.tok.op      { color:#24292e; }
+
+.tok.tag     { color:#22863a; font-weight:600; }     /* <div, </p */
+.tok.attr    { color:#6f42c1; }                      /* href, class */
+.tok.eq      { color:#24292e; }                      /* = */
+.tok.entity  { color:#005cc5; }                      /* &amp; etc */
+
+.tok.selector{ color:#b31d28; }                      /* .class, #id, h1 */
+.tok.cssprop { color:#005cc5; }                      /* color, margin */
+.tok.cssval  { color:#032f62; }                      /* red, 12px */
+
+#pageControls button { background:#333; color:#fff; border:1px solid #444; padding:4px 8px; border-radius:6px; }
+#pageIndicator { cursor: default; }
+.node { touch-action: none; } /* smoother touch drag */
+
+#pageControlsWrapper {
+  position: fixed;
+  right: 12px;
+  bottom: 12px;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;  /* stack bar over arrows */
+  align-items: center;
+  gap: 6px;
+}
+
+#pageControls, #pageArrows {
+  display: flex;
+  align-items: center;
+  background: rgba(34,34,34,.9);
+  border: 1px solid #444;
+  border-radius: 10px;
+  padding: 6px 8px;
+  gap: 6px;
+}
+
+#pageControls button, #pageArrows button {
+  background:#333;
+  color:#fff;
+  border:1px solid #444;
+  padding:4px 8px;
+  border-radius:6px;
+}
+#pageIndicator { cursor: default; opacity: .9; }
+
+
+
+#pageControls button { background:#333; color:#fff; border:1px solid #444; padding:4px 8px; border-radius:6px; }
+#pageIndicator { cursor: default; opacity: .9; }
+
+#pageArrows {
+  display:flex;
+  align-items:center;
+  background: rgba(34,34,34,.9);
+  border: 1px solid #444;
+  border-radius: 10px;
+  padding: 6px 8px;
+  gap: 6px;
+}
+#pageArrows button {
+  background:#333; color:#fff; border:1px solid #444;
+  padding:4px 8px; border-radius:6px;
+}
+#pageArrowIndicator {
+  min-width: 48px;          /* nice fixed width */
+  text-align: center;
+  color: #fff;
+  opacity: .9;
+  padding: 0 8px;
+  font-weight: 600;
+}
+
   </style>
 </head>
 <body>
@@ -123,7 +222,7 @@ nav button {
 <nav>
   <button onclick="toggleModal()">  <h2>🎹MougeHTML</h2></button>
   <button onclick="toggleModal()">   🎛️ Menu</button>
-  <button onclick="document.getElementById('helpModal').style.display = 'block'">🙋✨ Help</button>
+  <button onclick="document.getElementById('helpModal').style.display = 'block'">✨ Help</button>
 </nav>
 
 
@@ -150,6 +249,27 @@ nav button {
   <button onclick="closeModal()">Close</button>
 </div>
 
+<div id="pageControlsWrapper">
+  <div id="pageControls">
+    <button id="pageMinus" title="Delete page">➖</button>
+    <button id="pageIndicator" disabled>
+      Page <span id="pageNumber">1</span>/<span id="pageTotal">1</span>
+    </button>
+    <button id="pagePlus" title="New page">➕</button>
+  </div>
+
+<div id="pageArrows">
+  <button id="pagePrev" title="Previous page">◀️</button>
+  <span id="pageArrowIndicator" aria-label="Current page">1/1</span>
+  <button id="pageNext" title="Next page">▶️</button>
+</div>
+
+
+
+</div>
+
+
+
 <script>
 const mindmap = document.getElementById("mindmap");
 const modal = document.getElementById("modal");
@@ -172,137 +292,331 @@ let tickETimer = null;
 
 let escHeld = false;
 
+let tickHeldR = false;
+let escWTimer = null;
+
+
+
+
+const mindmapWrapper = document.getElementById("mindmapWrapper");
+
+const outputFrame = document.getElementById("outputFrame");
+let isDragging = false;
+
+
+// Pages (3D)
+let pages = [];      // [{ id, state: NodeState[] }]
+let currentPage = 0; // index
+
+function snapshotCurrentPage() {
+  return nodes.map(n => ({
+    x: n.el.style.left,
+    y: n.el.style.top,
+    content: n.getValue(),
+    sequence: parseInt(n.seqDisplay.textContent),
+    width: n.el.style.width,
+    height: n.el.style.height
+  }));
+}
+function clearDOMNodes() {
+  nodes.forEach(n => mindmap.removeChild(n.el));
+  nodes = [];
+}
+function loadPageState(state) {
+  clearDOMNodes();
+  (state || []).forEach(n => {
+    const x = parseInt(n.x), y = parseInt(n.y);
+    const w = n.width  || "150px";
+    const h = n.height || "100px";
+    createNode(x, y, n.content, n.sequence, w, h);
+  });
+}
+function ensureCurrentSnap() {
+  if (!pages.length) return;
+  pages[currentPage].state = snapshotCurrentPage();
+}
+
+
+//Below Helpers 
+
+function goToPage(index) {
+  if (!pages.length) return;
+  ensureCurrentSnap(); // save current DOM -> snapshot
+  currentPage = ((index % pages.length) + pages.length) % pages.length; // wrap
+  loadPageState(pages[currentPage].state);
+  updatePageUI();
+
+  // optional: reset scroll for a clean view
+  mindmapWrapper.scrollLeft = 0;
+  mindmapWrapper.scrollTop  = 0;
+}
+function nextPage() { goToPage(currentPage + 1); }
+function prevPage() { goToPage(currentPage - 1); }
+
+//PEV PAGE NEXT PAGE
+
+document.getElementById("pagePlus").onclick = () => {
+  ensureCurrentSnap();
+  pages.push({ id: `p${pages.length+1}`, state: [] });   // blank page
+  goToPage(pages.length - 1);                             // jump to it
+};
+
+document.getElementById("pageMinus").onclick = () => {
+  if (pages.length <= 1) return alert("Can't delete the last page.");
+  ensureCurrentSnap();
+  pages.splice(currentPage, 1);
+  goToPage(Math.max(0, currentPage - 1));                 // land on previous
+};
+
+
+
+//RIGHT AFTER 
+document.getElementById("pageNext").onclick = nextPage;
+document.getElementById("pagePrev").onclick = prevPage;
+
+
+//hoisted above 
+
+// live highlighter for `<html>`
+function escapeHTML(s) {
+  return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+}
+
+//FIXING 
+
+function saveSelection(root) {
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount === 0) return null;
+  const r = sel.getRangeAt(0);
+
+  // offsets relative to root's textContent
+  const preStart = r.cloneRange();
+  preStart.selectNodeContents(root);
+  preStart.setEnd(r.startContainer, r.startOffset);
+  const start = preStart.toString().length;
+
+  const preEnd = r.cloneRange();
+  preEnd.selectNodeContents(root);
+  preEnd.setEnd(r.endContainer, r.endOffset);
+  const end = preEnd.toString().length;
+
+  return { start, end };
+}
+
+function restoreSelection(root, pos) {
+  if (!pos) return;
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null);
+  let cur = 0, n, sNode=null, sOff=0, eNode=null, eOff=0;
+
+  while ((n = walker.nextNode())) {
+    const next = cur + n.nodeValue.length;
+    if (sNode === null && pos.start <= next) { sNode = n; sOff = pos.start - cur; }
+    if (eNode === null && pos.end   <= next) { eNode = n; eOff = pos.end   - cur; break; }
+    cur = next;
+  }
+  if (sNode && eNode) {
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    const r = document.createRange();
+    r.setStart(sNode, Math.max(0, sOff));
+    r.setEnd(eNode,   Math.max(0, eOff));
+    sel.addRange(r);
+  }
+}
+
+
+function escapeHTML(s) {
+  return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+}
+
+function highlightLive(ed) {
+  const caret = saveSelection(ed);        // keep cursor in place
+
+  const raw  = ed.innerText;              // 1) plain text from editor
+  const safe = escapeHTML(raw);           // 2) escape < > &
+
+  // 3) Highlight tags like <h1>, </div>, <p class="x">
+  //    We wrap the whole tag in .tok.tag and then highlight the inside pieces.
+  let html = safe.replace(
+    /(&lt;\/?)([a-zA-Z][\w-]*)([^&]*?)(&gt;)/g,
+    (m, lt, tagName, inside, gt) => {
+      // Inside the tag, highlight attributes: name, =, "string"
+      const highlightedInside = inside
+        // attr name
+        .replace(/(\s+)([a-zA-Z_:][\w:.-]*)/g, (m2, ws, name) => `${ws}<span class="tok attr">${name}</span>`)
+        // equals
+        .replace(/=/g, '<span class="tok eq">=</span>')
+        // quoted strings "..." or '...'
+        .replace(/(".*?"|'.*?')/g, '<span class="tok string">$1</span>');
+
+      return `<span class="tok tag">${lt}${tagName}${highlightedInside}${gt}</span>`;
+    }
+  );
+
+  // 4) Optional: highlight DOCTYPE, comments, numbers, etc.
+  html = html
+    .replace(/(&lt;!--[\s\S]*?--&gt;)/g, '<span class="tok comment">$1</span>')   // HTML comments
+    .replace(/\b\d+(\.\d+)?\b/g, '<span class="tok number">$&</span>');          // numbers
+
+  if (ed.innerHTML !== html) ed.innerHTML = html;
+
+  restoreSelection(ed, caret);            // restore cursor
+}
 
 
 
 //Create NODE
 
+          function createNode(x, y, content = "", sequence = 0, width = "150px", height = "100px") {
+            const node = document.createElement("div");
+            node.className = "node";
+            node.style.left = `${x}px`;
+            node.style.top = `${y}px`;
+            node.style.width = width;
+            node.style.height = height;
 
-function createNode(x, y, content = "", sequence = 0, width = "150px", height = "100px") {
-  const node = document.createElement("div");
-  node.className = "node";
-  node.style.left = `${x}px`;
-  node.style.top = `${y}px`;
-  node.style.width = width;
-  node.style.height = height;
+            const seqDisplay = document.createElement("div");
+            seqDisplay.className = "sequence-number";
+            seqDisplay.textContent = sequence;
+            seqDisplay.style.display = showSequence ? "block" : "none";
 
-  const seqDisplay = document.createElement("div");
-  seqDisplay.className = "sequence-number";
-  seqDisplay.textContent = sequence;
-  seqDisplay.style.display = showSequence ? "block" : "none";
+            // --- Rich editor ---
+            const editor = document.createElement("div");
+            editor.className = "rich";
+            editor.contentEditable = "true";
+            editor.textContent = content;
 
-  const textarea = document.createElement("textarea");
+            // initial highlight (now that content is set)
+            highlightLive(editor);
 
-//ALLOW TAB
+            // Enter inserts newline (code-editor style)
+            editor.addEventListener("keydown", (e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                document.execCommand("insertHTML", false, "\n");
+                highlightLive(editor);
+              }
+            });
 
+            // Tab inserts 4 spaces
+            editor.addEventListener("keydown", (e) => {
+              if (e.key === "Tab") {
+                e.preventDefault();
+                document.execCommand("insertText", false, "    ");
+              }
+            });
 
-  textarea.addEventListener("keydown", function (e) {
-  if (e.key === "Tab") {
-    e.preventDefault();
-    const start = this.selectionStart;
-    const end = this.selectionEnd;
+            // Re-highlight while typing
+            editor.addEventListener("input", () => highlightLive(editor));
 
-    // Insert 2 spaces or a tab
-    const tab = "    "; // or use "\t" for a literal tab
-    this.value = this.value.substring(0, start) + tab + this.value.substring(end);
+            // --- Edit icons ---
+            const icons = document.createElement("div");
+            icons.className = "edit-icons";
 
-    // Move cursor
-    this.selectionStart = this.selectionEnd = start + tab.length;
-  }
-});
+            const editBtn = document.createElement("button");
+            editBtn.textContent = "✏️";
+            editBtn.onclick = () => {
+              editor.contentEditable = (editor.contentEditable === "true") ? "false" : "true";
+            };
 
+            const delBtn = document.createElement("button");
+            delBtn.textContent = "❌";
+            delBtn.onclick = () => deleteNode(node);
 
-  textarea.value = content;
-  textarea.disabled = false;
+            icons.appendChild(editBtn);
+            icons.appendChild(delBtn);
 
-  const icons = document.createElement("div");
-  icons.className = "edit-icons";
+            // --- Resizer ---
+            const resizer = document.createElement("div");
+            resizer.className = "resizer";
+            node.appendChild(resizer);
 
-  const editBtn = document.createElement("button");
-  editBtn.textContent = "✏️";
-  editBtn.onclick = () => textarea.disabled = !textarea.disabled;
+            resizer.addEventListener("mousedown", (e) => {
+              e.stopPropagation();
+              e.preventDefault();
 
-  const delBtn = document.createElement("button");
-  delBtn.textContent = "❌";
-  delBtn.onclick = () => deleteNode(node);
+              const startX = e.clientX;
+              const startY = e.clientY;
+              const startWidth = parseInt(getComputedStyle(node).width, 10);
+              const startHeight = parseInt(getComputedStyle(node).height, 10);
 
-  icons.appendChild(editBtn);
-  icons.appendChild(delBtn);
+              function doDrag(ev) {
+                node.style.width = `${startWidth + ev.clientX - startX}px`;
+                node.style.height = `${startHeight + ev.clientY - startY}px`;
+              }
+              function stopDrag() {
+                document.removeEventListener("mousemove", doDrag);
+                document.removeEventListener("mouseup", stopDrag);
+              }
+              document.addEventListener("mousemove", doDrag);
+              document.addEventListener("mouseup", stopDrag);
+            });
 
-  const resizer = document.createElement("div");
-  resizer.className = "resizer";
-  node.appendChild(resizer);
+            // ---- Drag Logic (no jump, scroll-safe) ----
+            node.addEventListener("pointerdown", (e) => {
+              if (e.target.closest(".resizer") || e.target.closest(".rich")) return;
+              if (e.target.closest(".edit-icons")) return;
+              if (mode !== "mindmap") return;
 
-  // ✅ Resizing Logic
-  resizer.addEventListener("mousedown", function (e) {
-    e.stopPropagation();
-    e.preventDefault();
+              isDragging = true;
+              node.setPointerCapture(e.pointerId);
 
-    const startX = e.clientX;
-    const startY = e.clientY;
-    const startWidth = parseInt(document.defaultView.getComputedStyle(node).width, 10);
-    const startHeight = parseInt(document.defaultView.getComputedStyle(node).height, 10);
+              const startX = e.clientX;
+              const startY = e.clientY;
+              const startLeft = parseFloat(node.style.left) || 0;
+              const startTop  = parseFloat(node.style.top)  || 0;
 
-    function doDrag(e) {
-      node.style.width = `${startWidth + e.clientX - startX}px`;
-      node.style.height = `${startHeight + e.clientY - startY}px`;
-    }
+              const startScrollLeft = mindmapWrapper.scrollLeft;
+              const startScrollTop  = mindmapWrapper.scrollTop;
 
-    function stopDrag() {
-      document.removeEventListener("mousemove", doDrag);
-      document.removeEventListener("mouseup", stopDrag);
-    }
+              const onMove = (ev) => {
+                const dx = (ev.clientX - startX) + (mindmapWrapper.scrollLeft - startScrollLeft);
+                const dy = (ev.clientY - startY) + (mindmapWrapper.scrollTop  - startScrollTop);
+                node.style.left = `${startLeft + dx}px`;
+                node.style.top  = `${startTop  + dy}px`;
+                document.body.style.userSelect = "none";
+              };
 
-    document.addEventListener("mousemove", doDrag);
-    document.addEventListener("mouseup", stopDrag);
-  });
+              const onUp = (ev) => {
+                isDragging = false;
+                node.releasePointerCapture(ev.pointerId);
+                node.removeEventListener("pointermove", onMove);
+                node.removeEventListener("pointerup", onUp);
+                document.body.style.userSelect = "";
+              };
 
-  // ✅ Drag Logic
-  node.addEventListener("mousedown", (e) => {
-    if (e.target.closest(".resizer") || e.target.tagName === "TEXTAREA") return;
-    if (e.target.closest(".edit-icons")) return;
-    if (mode !== "mindmap") return;
+              node.addEventListener("pointermove", onMove);
+              node.addEventListener("pointerup", onUp);
+            });
 
-    const rect = node.getBoundingClientRect();
-    const offsetX = e.clientX - rect.left;
-    const offsetY = e.clientY - rect.top;
+            // --- Append ---
+            node.appendChild(seqDisplay);
+            node.appendChild(icons);
+            node.appendChild(editor);
+            mindmap.appendChild(node);
 
-    function move(e) {
-      const wrapperRect = mindmap.getBoundingClientRect();
-      node.style.left = `${e.clientX - wrapperRect.left - offsetX}px`;
-      node.style.top = `${e.clientY - wrapperRect.top - offsetY}px`;
-      document.body.style.userSelect = "none";
-    }
+            // Sequence editing (when overlay is visible)
+            node.addEventListener("click", () => {
+              if (showSequence && shiftHeld) {
+                const newVal = prompt("Edit Sequence Number:", seqDisplay.textContent);
+                const newSeq = parseInt(newVal);
+                if (!isNaN(newSeq)) {
+                  seqDisplay.textContent = newSeq;
+                  const current = nodes.find(n => n.el === node);
+                  if (current) current.sequence = newSeq;
+                }
+              }
+            });
 
-    function stop() {
-      document.removeEventListener("mousemove", move);
-      document.removeEventListener("mouseup", stop);
-      document.body.style.userSelect = "";
-    }
-
-    document.addEventListener("mousemove", move);
-    document.addEventListener("mouseup", stop);
-  });
-
-  node.appendChild(seqDisplay);
-  node.appendChild(icons);
-  node.appendChild(textarea);
-  mindmap.appendChild(node);
-
-  node.addEventListener("click", () => {
-    if (showSequence && shiftHeld) {
-      const newVal = prompt("Edit Sequence Number:", seqDisplay.textContent);
-      const newSeq = parseInt(newVal);
-      if (!isNaN(newSeq)) {
-        seqDisplay.textContent = newSeq;
-        const current = nodes.find(n => n.el === node);
-        if (current) current.sequence = newSeq;
-      }
-    }
-  });
-
-  nodes.push({ el: node, textarea, seqDisplay, sequence });
-}
+            // Register in state
+            nodes.push({
+              el: node,
+              editor,
+              seqDisplay,
+              sequence,
+              getValue: () => editor.innerText
+            });
+          }
 
 
 
@@ -332,9 +646,11 @@ function deleteNode(node) {
 
 
 function renderOutput() {
-  const sorted = [...nodes].filter(n => n.seqDisplay.textContent !== '0')
-                           .sort((a, b) => parseInt(a.seqDisplay.textContent) - parseInt(b.seqDisplay.textContent));
-  const code = sorted.map(n => n.textarea.value).join('\n');
+  const sorted = [...nodes]
+    .filter(n => n.seqDisplay.textContent !== '0')
+    .sort((a, b) => parseInt(a.seqDisplay.textContent) - parseInt(b.seqDisplay.textContent));
+
+  const code = sorted.map(n => n.getValue()).join('\n');
   const doc = outputFrame.contentDocument || outputFrame.contentWindow.document;
   doc.open(); doc.write(code); doc.close();
 }
@@ -363,12 +679,20 @@ function toggleMode() {
     mode = "render";
     wrapper.style.display = "none";
     iframeView.style.display = "block";
+    
+ensureCurrentSnap();  // save current page before rendering
+const all = [];
+pages.forEach((p, idx) => {
+  (p.state || []).forEach(n => {
+    const s = parseInt(n.sequence);
+    if (!isNaN(s) && s !== 0) {
+      all.push({ seq: s, content: n.content, pageIndex: idx });
+    }
+  });
+});
+all.sort((a,b)=> a.seq - b.seq);
 
-    const sorted = [...nodes]
-      .filter(n => n.seqDisplay.textContent !== '0')
-      .sort((a, b) => parseInt(a.seqDisplay.textContent) - parseInt(b.seqDisplay.textContent));
-
-    const code = sorted.map(n => n.textarea.value).join("\n");
+const code = all.map(n => n.content).join("\n");
 
     const fullDoc = `
       <html>
@@ -429,7 +753,7 @@ function toggleRenderSequence() {
   showSequence = !showSequence;
   nodes.forEach(n => {
     n.seqDisplay.style.display = showSequence ? "block" : "none";
-    n.textarea.style.display = showSequence ? "none" : "block";
+    n.editor.style.display = showSequence ? "none" : "block";
   });
 }
 
@@ -444,27 +768,42 @@ function closeModal() {
 function saveState() {
   const name = prompt("Enter a name for this save:");
   if (!name) return;
-
-  const state = nodes.map(n => ({
-    x: n.el.style.left,
-    y: n.el.style.top,
-    content: n.textarea.value,
-    sequence: parseInt(n.seqDisplay.textContent),
-    width: n.el.style.width,
-    height: n.el.style.height
-  }));
-
+  ensureCurrentSnap();
+  const payload = { currentPage, pages };
   fetch(`/api/save/${name}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(state)
+    body: JSON.stringify(payload)
   })
-    .then(res => res.text())
-    .then(msg => alert(msg))
-    .catch(err => alert("Save failed: " + err));
+  .then(r=>r.text()).then(msg=>alert(msg))
+  .catch(err=>alert("Save failed: " + err));
 }
 
+function loadState() {
+  fetch("/api/list").then(r=>r.json()).then(list => {
+    if (list.length === 0) return alert("No saves found.");
+    let menu = "Choose a save to load:\n\n";
+    list.forEach((name,i)=> menu += `${i+1}. ${name}\n`);
+    const idx = parseInt(prompt(menu));
+    if (isNaN(idx) || idx<1 || idx>list.length) return alert("Invalid selection.");
 
+    const saveName = list[idx-1];
+    fetch(`/api/load/${saveName}`).then(r=>r.json()).then(state => {
+      if (Array.isArray(state)) { // legacy: single page
+        pages = [{ id: "p1", state }];
+        currentPage = 0;
+      } else {
+        pages = (state.pages || []).map((p,i)=>({ id: p.id || `p${i+1}`, state: p.state || [] }));
+        currentPage = Math.min(Math.max(0, parseInt(state.currentPage)||0), pages.length-1);
+      }
+      loadPageState(pages[currentPage].state);
+      updatePageUI();
+      alert(`Loaded: ${saveName}`);
+    }).catch(err=>alert("Failed to load save: " + err));
+  }).catch(err=>alert("Failed to fetch saves: " + err));
+}
+
+/*
 
 function loadState() {
   fetch("/api/list")
@@ -507,7 +846,7 @@ function loadState() {
     })
     .catch(err => alert("Failed to load saves: " + err));
 }
-
+*/
 
 
 function deleteState() {
@@ -689,6 +1028,18 @@ document.addEventListener("keyup", (e) => {
 });
 
 
+function updatePageUI() {
+  const num = document.getElementById("pageNumber");
+  const tot = document.getElementById("pageTotal");
+  const arrowInd = document.getElementById("pageArrowIndicator");      // ← add
+  if (num && tot) {
+    num.textContent = (currentPage + 1);
+    tot.textContent = pages.length;
+  }
+  if (arrowInd) arrowInd.textContent = `${currentPage + 1}/${pages.length}`; // ← add
+}
+
+
 //Shift + ` holded for 1 second fires this
 
 document.addEventListener("keydown", (e) => {
@@ -731,17 +1082,42 @@ document.addEventListener("fullscreenchange", () => {
   }
 });
 
+//UPDATE
+
+
+
+//shortcut flip pages 
+
+document.addEventListener("keydown", (e) => {
+  if (e.key === "`") tickHeld = true;
+  if (tickHeld && e.key === "ArrowRight") { e.preventDefault(); nextPage(); }
+  if (tickHeld && e.key === "ArrowLeft")  { e.preventDefault(); prevPage(); }
+});
+document.addEventListener("keyup", (e) => { if (e.key === "`") tickHeld = false; });
 
 
 mindmap.addEventListener("click", (e) => {
   if (shiftHeld && e.target === mindmap) {
-    createNode(e.pageX, e.pageY, "<p>New Node</p>", nodes.length + 1);
+    const mapRect = mindmap.getBoundingClientRect();
+    const x = e.clientX - mapRect.left + mindmapWrapper.scrollLeft;
+    const y = e.clientY - mapRect.top  + mindmapWrapper.scrollTop;
+    createNode(x, y, "<p>New Node</p>", nodes.length + 1);
   }
 });
 
-// Initial nodes
-createNode(200, 200, "<h1>Hello</h1>", 1);
-createNode(400, 200, "<p>This is a second node</p>", 2);
+// put this at the very bottom of your script:
+
+// if you want demo nodes only when canvas is empty:
+if (nodes.length === 0) {
+  createNode(200, 200, "<h1>Hello</h1>", 1);
+  createNode(400, 200, "<p>This is a second node</p>", 2);
+}
+
+// seed page system with whatever nodes currently exist
+pages = [{ id: "p1", state: snapshotCurrentPage() }];
+currentPage = 0;
+updatePageUI();
+
 
 </script>
 
