@@ -215,6 +215,56 @@ nav button {
   font-weight: 600;
 }
 
+
+/* === Code Color Theme (HTML + CSS + JS tokens) === */
+:root {
+  /* base */
+  --code-fg: #24292e;
+  --code-bg: transparent;
+
+  /* syntax */
+  --c-comment: #6a737d;
+  --c-string:  #032f62;
+  --c-number:  #005cc5;
+  --c-keyword: #d73a49; /* JS keywords: if, return, const, etc. */
+  --c-regex:   #22863a;
+  --c-op:      #24292e;
+  --c-entity:  #005cc5; /* &amp; etc. */
+
+  /* HTML */
+  --c-tag:     #22863a; /* <div>, </p> */
+  --c-attr:    #6f42c1; /* class, href, id */
+  --c-eq:      #24292e; /* = */
+
+  /* CSS */
+  --c-selector:#b31d28; /* .class, #id, h1 */
+  --c-prop:    #005cc5; /* color, margin */
+  --c-val:     #032f62; /* red, 12px */
+}
+
+.node .rich { color: var(--code-fg); background: var(--code-bg); }
+
+/* HTML tokens */
+.node .rich .tok.tag     { color: var(--c-tag);     font-weight: 600; }
+.node .rich .tok.attr    { color: var(--c-attr); }
+.node .rich .tok.eq      { color: var(--c-eq); }
+.node .rich .tok.entity  { color: var(--c-entity); }
+
+/* CSS tokens */
+.node .rich .tok.selector{ color: var(--c-selector); }
+.node .rich .tok.cssprop { color: var(--c-prop); }
+.node .rich .tok.cssval  { color: var(--c-val); }
+
+/* General tokens */
+.node .rich .tok.comment { color: var(--c-comment); font-style: italic; }
+.node .rich .tok.string  { color: var(--c-string); }
+.node .rich .tok.number  { color: var(--c-number); }
+.node .rich .tok.keyword { color: var(--c-keyword); font-weight: 600; }
+.node .rich .tok.regex   { color: var(--c-regex); }
+.node .rich .tok.op      { color: var(--c-op); }
+
+
+
   </style>
 </head>
 <body>
@@ -463,6 +513,119 @@ function highlightLive(ed) {
   restoreSelection(ed, caret);            // restore cursor
 }
 
+// Tag names + basic JS syntax (keywords, strings, numbers)
+function highlightLive(ed) {
+  const caret = saveSelection(ed);
+
+  const raw  = ed.innerText || "";
+  let html = raw
+    .replace(/&/g,"&amp;")
+    .replace(/</g,"&lt;")
+    .replace(/>/g,"&gt;");
+
+  // --- JS strings (", ', `) ---
+  html = html.replace(
+    /("([^"\\]|\\.)*"|'([^'\\]|\\.)*'|`([^`\\]|\\.)*`)/g,
+    '<span style="color:#032f62">$1</span>'
+  );
+
+  // --- Numbers ---
+  html = html.replace(
+    /\b\d+(\.\d+)?\b/g,
+    '<span style="color:#005cc5">$&</span>'
+  );
+
+  // --- JS keywords ---
+  const KW = [
+    "const","let","var","function","return","if","else","for","while",
+    "switch","case","break","continue","new","class","extends",
+    "try","catch","finally","throw","import","export","from",
+    "await","async","yield","this","null","true","false","in","of",
+    "typeof","instanceof","delete","void"
+  ];
+  const kwRe = new RegExp("\\b(" + KW.join("|") + ")\\b","g");
+  html = html.replace(kwRe, '<span style="color:#d73a49;font-weight:600">$1</span>');
+
+  // --- HTML tag names (<div>, </h1>, <p>) ---
+  html = html.replace(
+    /(&lt;\/?)(\w+)([^&]*?&gt;)/gi,
+    (m, open, tag, rest) => `${open}<span style="color:#22863a;font-weight:600">${tag}</span>${rest}`
+  );
+
+  ed.innerHTML = html;
+  restoreSelection(ed, caret);
+}
+
+
+
+
+
+/* === ONE-PASTE FIX: tag-only live highlight for all .rich editors === */
+(function () {
+  // 1) Override highlighter: only color tag names (<div>, </h1>, <p>), keep rest plain
+  window.highlightLive = function (ed) {
+    if (!ed) return;
+    const caret = (window.saveSelection ? saveSelection(ed) : null);
+
+    const raw  = ed.innerText || "";
+    const safe = raw.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+
+    const html = safe.replace(
+      /(&lt;\/?)(\w+)([^&]*?&gt;)/gi,
+      (m, open, tag, rest) => `${open}<span style="color:#22863a;font-weight:600">${tag}</span>${rest}`
+    );
+
+    ed.innerHTML = html;
+    if (caret && window.restoreSelection) restoreSelection(ed, caret);
+  };
+
+  // 2) Attach live behavior to an editor once
+  function initEditor(ed) {
+    if (!ed || ed.dataset.tagsInit) return;
+    ed.dataset.tagsInit = "1";
+
+    // live re-paint, coalesced via rAF
+    let scheduled = false, composing = false;
+    const schedule = () => {
+      if (scheduled || composing) return;
+      scheduled = true;
+      requestAnimationFrame(() => { scheduled = false; highlightLive(ed); });
+    };
+
+    ed.addEventListener("input", schedule);
+    ed.addEventListener("keyup", schedule);
+    ed.addEventListener("cut", schedule);
+    ed.addEventListener("drop", schedule);
+
+    ed.addEventListener("compositionstart", () => composing = true);
+    ed.addEventListener("compositionend",  () => { composing = false; schedule(); });
+
+    // plain-text paste only
+    ed.addEventListener("paste", (e) => {
+      e.preventDefault();
+      const t = (e.clipboardData || window.clipboardData).getData("text/plain");
+      document.execCommand("insertText", false, t);
+    });
+
+    // initial paint
+    highlightLive(ed);
+  }
+
+  // 3) Init existing editors
+  document.querySelectorAll(".rich[contenteditable]").forEach(initEditor);
+
+  // 4) Auto-init future editors created by your app
+  const root = document.getElementById("mindmap") || document.body;
+  new MutationObserver((muts) => {
+    for (const m of muts) {
+      m.addedNodes && m.addedNodes.forEach(n => {
+        if (n.nodeType !== 1) return;
+        if (n.matches?.(".rich[contenteditable]")) initEditor(n);
+        n.querySelectorAll?.(".rich[contenteditable]").forEach(initEditor);
+      });
+    }
+  }).observe(root, { childList: true, subtree: true });
+})();
 
 
 //Create NODE
@@ -507,7 +670,6 @@ function highlightLive(ed) {
             });
 
             // Re-highlight while typing
-            editor.addEventListener("input", () => highlightLive(editor));
 
             // --- Edit icons ---
             const icons = document.createElement("div");
